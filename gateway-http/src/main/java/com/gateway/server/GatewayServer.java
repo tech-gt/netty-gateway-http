@@ -49,7 +49,7 @@ public class GatewayServer {
             bootstrap.group(bossGroup, workerGroup)
                     .channel(NioServerSocketChannel.class)
                     // 关键优化：大幅提升网络配置参数
-                    .option(ChannelOption.SO_BACKLOG, 8192*2)  // 大幅增加backlog
+                    .option(ChannelOption.SO_BACKLOG, 1024)  // 大幅增加backlog
                     .option(ChannelOption.SO_REUSEADDR, true)
                     // 优化子通道配置
                     .childOption(ChannelOption.SO_KEEPALIVE, true)

@@ -20,6 +20,7 @@ import java.net.InetSocketAddress;
 import java.net.URI;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
+import java.net.ConnectException;
 
 /**
  * 高性能的非阻塞HTTP转发服务 - 连接池深度优化版
@@ -68,8 +69,8 @@ public class AsyncHttpForwardService {
                     .option(ChannelOption.TCP_NODELAY, true)
                     .option(ChannelOption.SO_REUSEADDR, true)
                     // 关键优化：增加缓冲区大小，提升网络性能
-                    .option(ChannelOption.SO_RCVBUF, 128 * 1024 * 2)
-                    .option(ChannelOption.SO_SNDBUF, 128 * 1024 * 2)
+                    .option(ChannelOption.SO_RCVBUF, 128 * 1024 )
+                    .option(ChannelOption.SO_SNDBUF, 128 * 1024)
                     // 优化连接处理
                     .option(ChannelOption.SO_LINGER, 0)
                     .option(ChannelOption.ALLOCATOR, io.netty.buffer.PooledByteBufAllocator.DEFAULT)
@@ -151,56 +152,10 @@ public class AsyncHttpForwardService {
                 public void operationComplete(Future<Channel> future) throws Exception {
                     if (future.isSuccess()) {
                         Channel backendChannel = future.getNow();
-                        
-                        // 检查连接有效性
-                        if (!backendChannel.isActive()) {
-                            if (retriesLeft > 0) {
-                                forwardRequestWithRetry(gatewayCtx, request, service, retriesLeft - 1);
-                            } else {
-                                sendErrorResponse(gatewayCtx, HttpResponseStatus.BAD_GATEWAY, 
-                                    "No active backend connection available");
-                                request.release();
-                            }
-                            return;
-                        }
-                        
-                        // 创建后端请求
-                        FullHttpRequest backendRequest = createBackendRequest(request, backendUri);
-                        
-                        // 设置响应处理器
-                        backendChannel.pipeline().addLast("responseHandler", 
-                            new BackendResponseHandler(gatewayCtx, channelPool, backendChannel, request));
-                        
-                        // 发送请求到后端
-                        backendChannel.writeAndFlush(backendRequest).addListener(writeFuture -> {
-                            if (!writeFuture.isSuccess()) {
-                                // 发送失败，销毁连接并重试
-                                backendChannel.close();
-                                if (retriesLeft > 0) {
-                                    // 使用指数退避
-                                    gatewayCtx.channel().eventLoop().schedule(() -> {
-                                        forwardRequestWithRetry(gatewayCtx, request, service, retriesLeft - 1);
-                                    }, 50 * (3 - retriesLeft), TimeUnit.MILLISECONDS);
-                                } else {
-                                    logger.error("Failed to send request to backend after retries", writeFuture.cause());
-                                    sendErrorResponse(gatewayCtx, HttpResponseStatus.BAD_GATEWAY, 
-                                        "Failed to send request to backend after retries");
-                                    request.release();
-                                }
-                            }
-                        });
+                        handleChannelAcquired(gatewayCtx, request, service, retriesLeft, backendUri, channelPool, backendChannel);
                     } else {
                         // 获取连接失败
-                        if (retriesLeft > 0) {
-                            gatewayCtx.channel().eventLoop().schedule(() -> {
-                                forwardRequestWithRetry(gatewayCtx, request, service, retriesLeft - 1);
-                            }, 100, TimeUnit.MILLISECONDS);
-                        } else {
-                            logger.error("Failed to acquire connection from pool: {}", future.cause().getMessage());
-                            sendErrorResponse(gatewayCtx, HttpResponseStatus.BAD_GATEWAY, 
-                                "Failed to acquire connection from pool");
-                            request.release();
-                        }
+                        handleConnectionFailure(gatewayCtx, request, service, retriesLeft, "Failed to acquire connection from pool", future.cause());
                     }
                 }
             });
@@ -209,6 +164,47 @@ public class AsyncHttpForwardService {
             logger.error("Error forwarding request: ", e);
             sendErrorResponse(gatewayCtx, HttpResponseStatus.INTERNAL_SERVER_ERROR, 
                 "Internal server error: " + e.getMessage());
+            request.release();
+        }
+    }
+
+    private void handleChannelAcquired(ChannelHandlerContext gatewayCtx, FullHttpRequest request, BackendService service, int retriesLeft, URI backendUri, ChannelPool channelPool, Channel backendChannel) {
+        // 检查连接有效性
+        if (!backendChannel.isActive()) {
+            handleConnectionFailure(gatewayCtx, request, service, retriesLeft, "No active backend connection available", null);
+            return;
+        }
+
+        // 创建后端请求
+        FullHttpRequest backendRequest = createBackendRequest(request, backendUri);
+
+        // 发送请求到后端
+        backendChannel.writeAndFlush(backendRequest).addListener(writeFuture -> {
+            if (writeFuture.isSuccess()) {
+                // 请求发送成功后，再添加响应处理器
+                backendChannel.pipeline().addLast("responseHandler",
+                        new BackendResponseHandler(gatewayCtx, channelPool, backendChannel, request, service, retriesLeft));
+            } else {
+                // 发送失败，销毁连接并重试
+                backendChannel.close();
+                handleConnectionFailure(gatewayCtx, request, service, retriesLeft, "Failed to send request to backend after retries", writeFuture.cause());
+            }
+        });
+    }
+
+    private void handleConnectionFailure(ChannelHandlerContext gatewayCtx, FullHttpRequest request, BackendService service, int retriesLeft, String logMessage, Throwable cause) {
+        if (retriesLeft > 0) {
+            long delay = (cause instanceof ConnectException) ? 100 : 50 * (3 - retriesLeft);
+            gatewayCtx.channel().eventLoop().schedule(() -> {
+                forwardRequestWithRetry(gatewayCtx, request, service, retriesLeft - 1);
+            }, delay, TimeUnit.MILLISECONDS);
+        } else {
+            if (cause != null) {
+                logger.error(logMessage, cause);
+            } else {
+                logger.error(logMessage);
+            }
+            sendErrorResponse(gatewayCtx, HttpResponseStatus.BAD_GATEWAY, logMessage);
             request.release();
         }
     }
@@ -236,7 +232,7 @@ public class AsyncHttpForwardService {
         backendRequest.headers().set(HttpHeaderNames.HOST, backendUri.getHost());
         backendRequest.headers().set(HttpHeaderNames.CONNECTION, HttpHeaderValues.KEEP_ALIVE);
         // 设置更长的Keep-Alive时间
-        backendRequest.headers().set(HttpHeaderNames.KEEP_ALIVE, "timeout=300, max=10000");
+        backendRequest.headers().set(HttpHeaderNames.KEEP_ALIVE, "timeout=600, max=10000");
         backendRequest.headers().set(HttpHeaderNames.USER_AGENT, "Netty-Gateway/2.0");
         
         return backendRequest;
@@ -255,20 +251,25 @@ public class AsyncHttpForwardService {
     /**
      * 后端响应处理器 - 优化连接复用
      */
-    private static class BackendResponseHandler extends SimpleChannelInboundHandler<FullHttpResponse> {
+    private class BackendResponseHandler extends SimpleChannelInboundHandler<FullHttpResponse> {
         private final ChannelHandlerContext gatewayCtx;
         private final ChannelPool channelPool;
         private final Channel backendChannel;
         private final FullHttpRequest originalRequest;
+        private final BackendService service;
+        private final int retriesLeft;
         private volatile boolean processed = false;
         
         public BackendResponseHandler(
-                ChannelHandlerContext gatewayCtx, ChannelPool channelPool, 
-                Channel backendChannel, FullHttpRequest originalRequest) {
+                ChannelHandlerContext gatewayCtx, ChannelPool channelPool,
+                Channel backendChannel, FullHttpRequest originalRequest,
+                BackendService service, int retriesLeft) {
             this.gatewayCtx = gatewayCtx;
             this.channelPool = channelPool;
             this.backendChannel = backendChannel;
             this.originalRequest = originalRequest;
+            this.service = service;
+            this.retriesLeft = retriesLeft;
         }
         
         @Override
@@ -305,40 +306,68 @@ public class AsyncHttpForwardService {
                 processed = true;
                 
             } finally {
-                cleanupAndRelease(ctx);
+                cleanupAndRelease(ctx, false);
                 originalRequest.release();
             }
         }
         
         @Override
         public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) throws Exception {
-            if (!processed) {
-                logger.error("Backend response error: ", cause);
-                if (gatewayCtx.channel().isActive()) {
-                    sendErrorResponse(gatewayCtx, HttpResponseStatus.BAD_GATEWAY, 
-                        "Backend response error: " + cause.getMessage());
-                }
-                processed = true;
+            // A channel that throws an exception is considered faulty and should be closed.
+            cleanupAndRelease(ctx, true);
+
+            if (processed) {
+                return;
             }
-            
-            cleanupAndRelease(ctx);
-            originalRequest.release();
-        }
-        
-        @Override
-        public void channelInactive(ChannelHandlerContext ctx) throws Exception {
-            if (!processed && gatewayCtx.channel().isActive()) {
-                sendErrorResponse(gatewayCtx, HttpResponseStatus.BAD_GATEWAY, 
-                    "Backend connection closed unexpectedly");
-                processed = true;
+            processed = true;
+
+            // If the client channel is no longer active, we can't send a response or retry.
+            if (!gatewayCtx.channel().isActive()) {
+                originalRequest.release();
+                return;
+            }
+
+            // For specific, transient network errors, we attempt a retry.
+            if (isRetryableException(cause)) {
+                handleConnectionFailure(gatewayCtx, originalRequest, service, retriesLeft, "Backend connection error, retrying...", cause);
+            } else {
+                // For other errors, we fail fast and report to the client.
+                logger.error("Non-retryable backend error: ", cause);
+                sendErrorResponse(gatewayCtx, HttpResponseStatus.BAD_GATEWAY, "Backend processing error: " + cause.getMessage());
                 originalRequest.release();
             }
         }
         
+        @Override
+        public void channelInactive(ChannelHandlerContext ctx) throws Exception {
+            if (!processed) {
+                processed = true;
+                // 后端连接意外关闭，这是一个典型的可重试场景 (stale connection)
+                if (gatewayCtx.channel().isActive()) {
+                    handleConnectionFailure(gatewayCtx, originalRequest, service, retriesLeft, "Backend connection closed unexpectedly, retrying...", null);
+                } else {
+                    originalRequest.release();
+                }
+            }
+        }
+        
+        private boolean isRetryableException(Throwable cause) {
+            // A read timeout suggests the backend is slow or unresponsive. A retry may succeed with another instance.
+            if (cause instanceof io.netty.handler.timeout.ReadTimeoutException) {
+                return true;
+            }
+            // IOExceptions like 'Connection reset by peer' or 'Connection aborted' indicate a sudden connection loss,
+            // which is a classic case for a retry.
+            if (cause instanceof java.io.IOException) {
+                return true;
+            }
+            return false;
+        }
+
         /**
          * 清理资源并释放连接回池
          */
-        private void cleanupAndRelease(ChannelHandlerContext ctx) {
+        private void cleanupAndRelease(ChannelHandlerContext ctx, boolean forceClose) {
             try {
                 if (ctx.pipeline().get("responseHandler") != null) {
                     ctx.pipeline().remove("responseHandler");
@@ -348,6 +377,11 @@ public class AsyncHttpForwardService {
             }
             
             try {
+                if (forceClose) {
+                    backendChannel.close();
+                    return;
+                }
+
                 if (backendChannel.isActive()) {
                     channelPool.release(backendChannel);
                 } else {
