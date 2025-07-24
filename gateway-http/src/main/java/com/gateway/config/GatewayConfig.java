@@ -21,7 +21,7 @@ public class GatewayConfig {
     private List<BackendService> backendServices = new ArrayList<>();
     private int connectionTimeout = 5000;
     private int socketTimeout = 10000;
-    private int maxConnections = 100;
+    private int maxConnections = 1000;
     private LoadBalancerConfig loadBalancer = new LoadBalancerConfig();
     
     public static GatewayConfig load() {

@@ -232,7 +232,7 @@ public class AsyncHttpForwardService {
         backendRequest.headers().set(HttpHeaderNames.HOST, backendUri.getHost());
         backendRequest.headers().set(HttpHeaderNames.CONNECTION, HttpHeaderValues.KEEP_ALIVE);
         // 设置更长的Keep-Alive时间
-        backendRequest.headers().set(HttpHeaderNames.KEEP_ALIVE, "timeout=600, max=10000");
+        backendRequest.headers().set(HttpHeaderNames.KEEP_ALIVE, "timeout=1200, max=20000");
         backendRequest.headers().set(HttpHeaderNames.USER_AGENT, "Netty-Gateway/2.0");
         
         return backendRequest;

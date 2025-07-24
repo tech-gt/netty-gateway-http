@@ -49,17 +49,19 @@ public class GatewayServer {
             bootstrap.group(bossGroup, workerGroup)
                     .channel(NioServerSocketChannel.class)
                     // 关键优化：大幅提升网络配置参数
-                    .option(ChannelOption.SO_BACKLOG, 1024)  // 大幅增加backlog
+                    .option(ChannelOption.SO_BACKLOG, 1024*4)  // 大幅增加backlog
                     .option(ChannelOption.SO_REUSEADDR, true)
-                    // 优化子通道配置
+                    // // 优化客户端连接配置
                     .childOption(ChannelOption.SO_KEEPALIVE, true)
-                    .childOption(ChannelOption.TCP_NODELAY, true)
-                    .childOption(ChannelOption.SO_RCVBUF, 256 * 1024)  // 大幅增加接收缓冲区
-                    .childOption(ChannelOption.SO_SNDBUF, 256 * 1024)  // 大幅增加发送缓冲区
-                    // 新增性能优化配置
+                    // // .childOption(ChannelOption.TCP_NODELAY, true) //不重要
+                    //缓冲区不是越大越好
+                    // .childOption(ChannelOption.SO_RCVBUF, 8 * 1024)  // 大幅增加接收缓冲区
+                    // .childOption(ChannelOption.SO_SNDBUF, 8 * 1024)  // 大幅增加发送缓冲区
+                    // // 新增性能优化配置
                     .childOption(ChannelOption.WRITE_BUFFER_WATER_MARK, 
                         new io.netty.channel.WriteBufferWaterMark(64 * 1024, 128 * 1024))
                     .childOption(ChannelOption.ALLOCATOR, io.netty.buffer.PooledByteBufAllocator.DEFAULT)
+                    // 关键参数
                     .childOption(ChannelOption.SO_LINGER, 0)  // 快速关闭连接
                     .childHandler(channelInitializer);
             
