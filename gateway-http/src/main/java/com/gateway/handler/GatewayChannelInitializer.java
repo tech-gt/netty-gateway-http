@@ -10,13 +10,9 @@ import io.netty.channel.socket.SocketChannel;
 import io.netty.handler.codec.http.HttpObjectAggregator;
 import io.netty.handler.codec.http.HttpRequestDecoder;
 import io.netty.handler.codec.http.HttpResponseEncoder;
-import io.netty.handler.timeout.ReadTimeoutHandler;
-import io.netty.handler.timeout.WriteTimeoutHandler;
-
-import java.util.concurrent.TimeUnit;
 
 /**
- * 网关通道初始化器 - 使用单例服务优化性能
+ * 网关通道初始化器 - 高性能优化版
  */
 public class GatewayChannelInitializer extends ChannelInitializer<SocketChannel> {
     
@@ -41,8 +37,8 @@ public class GatewayChannelInitializer extends ChannelInitializer<SocketChannel>
         pipeline.addLast("httpRequestDecoder", new HttpRequestDecoder());
         pipeline.addLast("httpResponseEncoder", new HttpResponseEncoder());
         
-        // HTTP消息聚合器，将多个HTTP消息聚合成一个完整的HTTP消息
-        pipeline.addLast("httpObjectAggregator", new HttpObjectAggregator(1024 * 1024)); // 1MB
+        // HTTP消息聚合器，增加最大内容长度以支持更大的请求
+        pipeline.addLast("httpObjectAggregator", new HttpObjectAggregator(8 * 1024 * 1024)); // 8MB
         
         // 自定义的网关处理器 - 使用共享的服务实例
         pipeline.addLast("gatewayHandler", new AsyncGatewayRequestHandler(config, loadBalancer, forwardService));

@@ -22,7 +22,7 @@
     </root>
     
     <!-- 网关相关日志级别 -->
-    <logger name="com.gateway" level="INFO" additivity="false">
+    <logger name="com.gateway" level="WARN" additivity="false">
         <appender-ref ref="STDOUT" />
     </logger>
     

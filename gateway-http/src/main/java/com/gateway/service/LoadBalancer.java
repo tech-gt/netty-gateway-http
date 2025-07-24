@@ -58,7 +58,7 @@ class RoundRobinLoadBalancer implements LoadBalancer {
         int index = Math.abs(currentCount) % matchingServices.size();
         BackendService selected = matchingServices.get(index);
         
-        logger.info("get service: {} (index: {}/{}, count: {})", 
+        logger.info("get service: {} (index: {}/{}, 计数: {})", 
                 selected.getName(), index, matchingServices.size(), currentCount);
         
         return selected;

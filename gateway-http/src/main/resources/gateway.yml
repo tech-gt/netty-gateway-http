@@ -1,10 +1,10 @@
-# Netty HTTP Gateway 配置文件 - 性能优化版
+# Netty HTTP Gateway 配置文件 - 高性能优化版
 port: 8080
 
-# 连接超时配置 - 优化为更快的超时时间和更高的并发
-connectionTimeout: 2000  # 连接超时2秒
-socketTimeout: 5000      # 读超时5秒  
-maxConnections: 500      # 增加最大连接数
+# 连接超时配置 - 进一步优化为高性能配置
+connectionTimeout: 1000  # 连接超时1秒
+socketTimeout: 3000      # 读超时3秒
+maxConnections: 5000     # 大幅增加最大连接数
 
 # 负载均衡配置
 loadBalancer:

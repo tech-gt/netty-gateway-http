@@ -22,26 +22,38 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 
 /**
- * 高性能的非阻塞HTTP转发服务 (基于Netty连接池和连接复用)
+ * 高性能的非阻塞HTTP转发服务 - 连接池深度优化版
+ * 关键优化：
+ * 1. 使用FixedChannelPool严格控制连接数，避免连接泄漏
+ * 2. 优化连接池大小分配策略
+ * 3. 强化HTTP Keep-Alive机制
+ * 4. 减少不必要的日志输出
  */
 public class AsyncHttpForwardService {
     private static final Logger logger = LoggerFactory.getLogger(AsyncHttpForwardService.class);
     
-    // 优化：减少线程数，只使用CPU核心数的线程
+    // 优化：使用CPU核心数的线程，避免过度竞争
     private static final EventLoopGroup GLOBAL_WORKER_GROUP = 
-        new NioEventLoopGroup(Runtime.getRuntime().availableProcessors());
+        new NioEventLoopGroup(Runtime.getRuntime().availableProcessors() + 6);
     
-    // 真正的连接池 - 基于host:port缓存连接池
+    // 连接池缓存 - 基于host:port
     private static final ConcurrentHashMap<String, ChannelPool> CONNECTION_POOLS = new ConcurrentHashMap<>();
     
     private final GatewayConfig config;
+    private final int connectionsPerPool;
     
     public AsyncHttpForwardService(GatewayConfig config) {
         this.config = config;
+        // 计算每个连接池的最大连接数：总连接数 / 后端服务数，最少20个
+        int backendCount = Math.max(1, config.getBackendServices().size());
+        this.connectionsPerPool = Math.max(20, config.getMaxConnections() / backendCount);
+        
+        logger.warn("AsyncHttpForwardService initialized: totalConnections={}, backendCount={}, connectionsPerPool={}", 
+                   config.getMaxConnections(), backendCount, connectionsPerPool);
     }
     
     /**
-     * 获取或创建连接池
+     * 获取或创建连接池 - 使用FixedChannelPool严格控制连接数
      */
     private ChannelPool getOrCreateChannelPool(String host, int port) {
         String key = host + ":" + port;
@@ -55,31 +67,44 @@ public class AsyncHttpForwardService {
                     .option(ChannelOption.SO_KEEPALIVE, true)
                     .option(ChannelOption.TCP_NODELAY, true)
                     .option(ChannelOption.SO_REUSEADDR, true)
+                    // 关键优化：增加缓冲区大小，提升网络性能
+                    .option(ChannelOption.SO_RCVBUF, 128 * 1024 * 2)
+                    .option(ChannelOption.SO_SNDBUF, 128 * 1024 * 2)
+                    // 优化连接处理
+                    .option(ChannelOption.SO_LINGER, 0)
+                    .option(ChannelOption.ALLOCATOR, io.netty.buffer.PooledByteBufAllocator.DEFAULT)
                     .remoteAddress(remoteAddress);
             
-            // 创建固定大小的连接池，支持连接复用
+            // 连接池处理器
             ChannelPoolHandler poolHandler = new AbstractChannelPoolHandler() {
                 @Override
                 public void channelCreated(Channel ch) throws Exception {
                     ChannelPipeline pipeline = ch.pipeline();
                     
-                    // 设置读超时
+                    // 设置较短的超时时间
                     pipeline.addFirst("readTimeout", 
                         new io.netty.handler.timeout.ReadTimeoutHandler(
                             config.getSocketTimeout(), TimeUnit.MILLISECONDS));
                     
                     pipeline.addLast(new HttpClientCodec());
-                    pipeline.addLast(new HttpObjectAggregator(1024 * 1024));
+                    // 优化：增加聚合器大小
+                    pipeline.addLast(new HttpObjectAggregator(16 * 1024 * 1024));
                     
-                    logger.debug("创建新的后端连接: {}", ch.remoteAddress());
+                    // 减少日志输出
+                    if (logger.isDebugEnabled()) {
+                        logger.debug("Created backend connection: {}", ch.remoteAddress());
+                    }
                 }
             };
             
-            // 优化：使用SimpleChannelPool而非FixedChannelPool，避免连接池满时的阻塞
-            // FixedChannelPool在连接池满时会阻塞，SimpleChannelPool会动态创建连接
-            SimpleChannelPool pool = new SimpleChannelPool(bootstrap, poolHandler);
+            // 关键优化：使用FixedChannelPool严格控制连接数
+            FixedChannelPool pool = new FixedChannelPool(
+                bootstrap, 
+                poolHandler, 
+                connectionsPerPool  // 严格限制最大连接数
+            );
             
-            logger.info("创建连接池for {}:{}", host, port);
+            logger.warn("Created FixedChannelPool for {}:{} with maxConnections={}", host, port, connectionsPerPool);
             return pool;
         });
     }
@@ -88,17 +113,13 @@ public class AsyncHttpForwardService {
      * 非阻塞转发请求到后端服务
      */
     public void forwardRequest(ChannelHandlerContext gatewayCtx, FullHttpRequest request, BackendService service) {
-        // 关键优化：为异步操作和重试机制增加引用计数
+        // 为异步操作增加引用计数
         request.retain();
-        forwardRequestWithRetry(gatewayCtx, request, service, 1); // 允许1次重试
+        forwardRequestWithRetry(gatewayCtx, request, service, 2); // 允许2次重试
     }
 
     /**
      * 支持重试的非阻塞转发请求
-     * @param gatewayCtx 网关上下文
-     * @param request 原始请求
-     * @param service 目标服务
-     * @param retriesLeft 剩余重试次数
      */
     private void forwardRequestWithRetry(
             ChannelHandlerContext gatewayCtx, FullHttpRequest request, BackendService service, int retriesLeft) {
@@ -121,8 +142,6 @@ public class AsyncHttpForwardService {
                 port = "https".equals(backendUri.getScheme()) ? 443 : 80;
             }
             
-            logger.debug("转发请求: {} -> {}", request.uri(), backendUrl);
-            
             // 从连接池获取连接
             ChannelPool channelPool = getOrCreateChannelPool(host, port);
             Future<Channel> channelFuture = channelPool.acquire();
@@ -133,7 +152,19 @@ public class AsyncHttpForwardService {
                     if (future.isSuccess()) {
                         Channel backendChannel = future.getNow();
                         
-                        // 为重试创建可复制的请求
+                        // 检查连接有效性
+                        if (!backendChannel.isActive()) {
+                            if (retriesLeft > 0) {
+                                forwardRequestWithRetry(gatewayCtx, request, service, retriesLeft - 1);
+                            } else {
+                                sendErrorResponse(gatewayCtx, HttpResponseStatus.BAD_GATEWAY, 
+                                    "No active backend connection available");
+                                request.release();
+                            }
+                            return;
+                        }
+                        
+                        // 创建后端请求
                         FullHttpRequest backendRequest = createBackendRequest(request, backendUri);
                         
                         // 设置响应处理器
@@ -143,45 +174,49 @@ public class AsyncHttpForwardService {
                         // 发送请求到后端
                         backendChannel.writeAndFlush(backendRequest).addListener(writeFuture -> {
                             if (!writeFuture.isSuccess()) {
-                                logger.warn("发送请求到后端失败, cause: {}, retriesLeft: {}", 
-                                    writeFuture.cause().getMessage(), retriesLeft);
-
-                                // 销毁失效连接
+                                // 发送失败，销毁连接并重试
                                 backendChannel.close();
-
                                 if (retriesLeft > 0) {
-                                    // 重试请求
-                                    forwardRequestWithRetry(gatewayCtx, request, service, retriesLeft - 1);
+                                    // 使用指数退避
+                                    gatewayCtx.channel().eventLoop().schedule(() -> {
+                                        forwardRequestWithRetry(gatewayCtx, request, service, retriesLeft - 1);
+                                    }, 50 * (3 - retriesLeft), TimeUnit.MILLISECONDS);
                                 } else {
-                                    logger.error("发送请求到后端失败，已重试但仍然失败。", writeFuture.cause());
+                                    logger.error("Failed to send request to backend after retries", writeFuture.cause());
                                     sendErrorResponse(gatewayCtx, HttpResponseStatus.BAD_GATEWAY, 
-                                        "Failed to send request to backend");
-                                    request.release(); // 释放引用
+                                        "Failed to send request to backend after retries");
+                                    request.release();
                                 }
                             }
                         });
                     } else {
-                        logger.error("从连接池获取连接失败: ", future.cause());
-                        sendErrorResponse(gatewayCtx, HttpResponseStatus.BAD_GATEWAY, 
-                            "Failed to acquire connection from pool");
-                        request.release(); // 释放引用
+                        // 获取连接失败
+                        if (retriesLeft > 0) {
+                            gatewayCtx.channel().eventLoop().schedule(() -> {
+                                forwardRequestWithRetry(gatewayCtx, request, service, retriesLeft - 1);
+                            }, 100, TimeUnit.MILLISECONDS);
+                        } else {
+                            logger.error("Failed to acquire connection from pool: {}", future.cause().getMessage());
+                            sendErrorResponse(gatewayCtx, HttpResponseStatus.BAD_GATEWAY, 
+                                "Failed to acquire connection from pool");
+                            request.release();
+                        }
                     }
                 }
             });
             
         } catch (Exception e) {
-            logger.error("转发请求时发生错误: ", e);
+            logger.error("Error forwarding request: ", e);
             sendErrorResponse(gatewayCtx, HttpResponseStatus.INTERNAL_SERVER_ERROR, 
                 "Internal server error: " + e.getMessage());
-            request.release(); // 释放引用
+            request.release();
         }
     }
     
     /**
-     * 创建后端请求
+     * 创建后端请求 - 优化HTTP连接复用
      */
     private FullHttpRequest createBackendRequest(FullHttpRequest originalRequest, URI backendUri) {
-        // 创建新的请求
         FullHttpRequest backendRequest = new DefaultFullHttpRequest(
             HttpVersion.HTTP_1_1,
             originalRequest.method(),
@@ -197,9 +232,12 @@ public class AsyncHttpForwardService {
             }
         }
         
-        // 设置Host头和连接复用
+        // 关键优化：强化HTTP Keep-Alive设置
         backendRequest.headers().set(HttpHeaderNames.HOST, backendUri.getHost());
         backendRequest.headers().set(HttpHeaderNames.CONNECTION, HttpHeaderValues.KEEP_ALIVE);
+        // 设置更长的Keep-Alive时间
+        backendRequest.headers().set(HttpHeaderNames.KEEP_ALIVE, "timeout=300, max=10000");
+        backendRequest.headers().set(HttpHeaderNames.USER_AGENT, "Netty-Gateway/2.0");
         
         return backendRequest;
     }
@@ -210,18 +248,19 @@ public class AsyncHttpForwardService {
     private boolean shouldSkipHeader(String headerName) {
         String lowerName = headerName.toLowerCase();
         return lowerName.equals("host") || 
-               lowerName.equals("connection");
+               lowerName.equals("connection") ||
+               lowerName.equals("keep-alive");
     }
     
     /**
-     * 后端响应处理器 - 支持连接复用
+     * 后端响应处理器 - 优化连接复用
      */
     private static class BackendResponseHandler extends SimpleChannelInboundHandler<FullHttpResponse> {
         private final ChannelHandlerContext gatewayCtx;
         private final ChannelPool channelPool;
         private final Channel backendChannel;
-        private final FullHttpRequest originalRequest; // 用于释放
-        private volatile boolean processed = false; // 防止重复处理
+        private final FullHttpRequest originalRequest;
+        private volatile boolean processed = false;
         
         public BackendResponseHandler(
                 ChannelHandlerContext gatewayCtx, ChannelPool channelPool, 
@@ -235,7 +274,7 @@ public class AsyncHttpForwardService {
         @Override
         protected void channelRead0(ChannelHandlerContext ctx, FullHttpResponse backendResponse) throws Exception {
             if (processed) {
-                return; // 防止重复处理
+                return;
             }
             
             try {
@@ -246,12 +285,16 @@ public class AsyncHttpForwardService {
                     backendResponse.content().copy()
                 );
                 
-                // 复制响应头
+                // 复制响应头，但移除连接相关头部
                 for (String name : backendResponse.headers().names()) {
-                    String value = backendResponse.headers().get(name);
-                    gatewayResponse.headers().set(name, value);
+                    String lowerName = name.toLowerCase();
+                    if (!lowerName.equals("connection") && !lowerName.equals("keep-alive")) {
+                        String value = backendResponse.headers().get(name);
+                        gatewayResponse.headers().set(name, value);
+                    }
                 }
                 
+                // 设置客户端连接为关闭
                 gatewayResponse.headers().set(HttpHeaderNames.CONNECTION, HttpHeaderValues.CLOSE);
                 
                 // 发送响应给客户端
@@ -262,16 +305,15 @@ public class AsyncHttpForwardService {
                 processed = true;
                 
             } finally {
-                // 确保资源清理：移除处理器并释放连接回池
                 cleanupAndRelease(ctx);
-                originalRequest.release(); // 成功处理后释放原始请求
+                originalRequest.release();
             }
         }
         
         @Override
         public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) throws Exception {
             if (!processed) {
-                logger.error("后端响应处理出错: ", cause);
+                logger.error("Backend response error: ", cause);
                 if (gatewayCtx.channel().isActive()) {
                     sendErrorResponse(gatewayCtx, HttpResponseStatus.BAD_GATEWAY, 
                         "Backend response error: " + cause.getMessage());
@@ -279,21 +321,18 @@ public class AsyncHttpForwardService {
                 processed = true;
             }
             
-            // 异常时也要清理资源
             cleanupAndRelease(ctx);
-            originalRequest.release(); // 异常时也要释放
+            originalRequest.release();
         }
         
         @Override
         public void channelInactive(ChannelHandlerContext ctx) throws Exception {
-            // 后端连接意外关闭
             if (!processed && gatewayCtx.channel().isActive()) {
                 sendErrorResponse(gatewayCtx, HttpResponseStatus.BAD_GATEWAY, 
                     "Backend connection closed unexpectedly");
                 processed = true;
-                originalRequest.release(); // 意外关闭时也要释放
+                originalRequest.release();
             }
-            // 连接已关闭，不需要释放回池
         }
         
         /**
@@ -301,22 +340,22 @@ public class AsyncHttpForwardService {
          */
         private void cleanupAndRelease(ChannelHandlerContext ctx) {
             try {
-                // 安全移除处理器（使用handler名称）
                 if (ctx.pipeline().get("responseHandler") != null) {
                     ctx.pipeline().remove("responseHandler");
                 }
             } catch (Exception e) {
-                logger.warn("移除处理器时出错: ", e);
+                // 忽略清理错误
             }
             
             try {
-                // 释放连接回池
                 if (backendChannel.isActive()) {
                     channelPool.release(backendChannel);
-                    logger.debug("连接已释放回池: {}", backendChannel.remoteAddress());
+                } else {
+                    // 连接已关闭，池会自动处理
                 }
             } catch (Exception e) {
-                logger.warn("释放连接回池时出错: ", e);
+                // 释放失败，关闭连接
+                backendChannel.close();
             }
         }
     }
@@ -330,8 +369,8 @@ public class AsyncHttpForwardService {
         }
         
         String errorBody = String.format(
-            "{\"error\": \"%s\", \"message\": \"%s\", \"status\": %d}", 
-            status.reasonPhrase(), message, status.code()
+            "{\"error\": \"%s\", \"message\": \"%s\", \"status\": %d, \"timestamp\": %d}", 
+            status.reasonPhrase(), message, status.code(), System.currentTimeMillis()
         );
         
         FullHttpResponse response = new DefaultFullHttpResponse(
@@ -348,24 +387,32 @@ public class AsyncHttpForwardService {
     }
     
     /**
-     * 关闭服务，优雅关闭所有连接池和EventLoopGroup
+     * 关闭服务，优雅关闭所有连接池
      */
     public static void globalShutdown() {
+        logger.warn("Shutting down AsyncHttpForwardService...");
+        
         // 关闭所有连接池
         for (ChannelPool pool : CONNECTION_POOLS.values()) {
-            pool.close();
+            try {
+                pool.close();
+            } catch (Exception e) {
+                logger.warn("Error closing connection pool: ", e);
+            }
         }
         CONNECTION_POOLS.clear();
         
         if (GLOBAL_WORKER_GROUP != null) {
             GLOBAL_WORKER_GROUP.shutdownGracefully();
         }
+        
+        logger.warn("AsyncHttpForwardService shutdown completed");
     }
     
     /**
-     * 实例关闭（不关闭全局资源）
+     * 实例关闭
      */
     public void shutdown() {
-        // 不关闭全局资源，只在应用关闭时调用globalShutdown
+        // 实例级别的清理
     }
 } 

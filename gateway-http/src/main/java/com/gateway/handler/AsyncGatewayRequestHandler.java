@@ -19,7 +19,7 @@ import java.util.List;
 import java.util.Optional;
 
 /**
- * 使用真正非阻塞IO的网关请求处理器 - 性能优化版
+ * 使用真正非阻塞IO的网关请求处理器 - 高性能优化版
  */
 public class AsyncGatewayRequestHandler extends SimpleChannelInboundHandler<FullHttpRequest> {
     private static final Logger logger = LoggerFactory.getLogger(AsyncGatewayRequestHandler.class);
@@ -47,7 +47,10 @@ public class AsyncGatewayRequestHandler extends SimpleChannelInboundHandler<Full
         String uri = request.uri();
         String method = request.method().name();
         
-        logger.info("get request: {} {}", method, uri);
+        // 减少日志输出，只在debug模式下输出
+        if (logger.isDebugEnabled()) {
+            logger.debug("Processing request: {} {}", method, uri);
+        }
         
         try {
             // Parse request path
@@ -71,8 +74,6 @@ public class AsyncGatewayRequestHandler extends SimpleChannelInboundHandler<Full
                 "Internal server error: " + e.getMessage());
         }
     }
-    
-
     
     /**
      * Send an error response to the client
@@ -108,7 +109,9 @@ public class AsyncGatewayRequestHandler extends SimpleChannelInboundHandler<Full
     
     @Override
     public void channelInactive(ChannelHandlerContext ctx) throws Exception {
-        logger.debug("Channel inactive: {}", ctx.channel().remoteAddress());
+        if (logger.isDebugEnabled()) {
+            logger.debug("Channel inactive: {}", ctx.channel().remoteAddress());
+        }
         super.channelInactive(ctx);
     }
     

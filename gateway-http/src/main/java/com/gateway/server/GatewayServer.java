@@ -13,7 +13,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * Netty HTTP网关服务器 - 性能优化版
+ * Netty HTTP网关服务器 - 高性能优化版
  */
 public class GatewayServer {
     private static final Logger logger = LoggerFactory.getLogger(GatewayServer.class);
@@ -32,15 +32,15 @@ public class GatewayServer {
      * 启动网关服务器
      */
     public void start() throws InterruptedException {
-        // 优化线程组配置 - 避免过多线程导致上下文切换
-        int bossThreads = 1;
-        // 优化：IO密集型应用，worker线程数 = CPU核心数，避免过度竞争
+        // 优化线程组配置
+        int bossThreads = 1; // Boss线程只需要1个
+        // Worker线程数 = CPU核心数，处理I/O事件
         int workerThreads = Runtime.getRuntime().availableProcessors();
         
-        bossGroup = new NioEventLoopGroup(bossThreads); // 处理连接请求
-        workerGroup = new NioEventLoopGroup(workerThreads); // 处理业务逻辑
+        bossGroup = new NioEventLoopGroup(bossThreads);
+        workerGroup = new NioEventLoopGroup(workerThreads);
         
-        logger.info("启动网关服务器，Boss线程数: {}, Worker线程数: {}", bossThreads, workerThreads);
+        logger.warn("Starting gateway server with Boss threads: {}, Worker threads: {}", bossThreads, workerThreads);
         
         try {
             channelInitializer = new GatewayChannelInitializer(config);
@@ -48,21 +48,28 @@ public class GatewayServer {
             ServerBootstrap bootstrap = new ServerBootstrap();
             bootstrap.group(bossGroup, workerGroup)
                     .channel(NioServerSocketChannel.class)
-                    .option(ChannelOption.SO_BACKLOG, 2048)  // 增加backlog
+                    // 关键优化：大幅提升网络配置参数
+                    .option(ChannelOption.SO_BACKLOG, 8192*2)  // 大幅增加backlog
                     .option(ChannelOption.SO_REUSEADDR, true)
+                    // 优化子通道配置
                     .childOption(ChannelOption.SO_KEEPALIVE, true)
                     .childOption(ChannelOption.TCP_NODELAY, true)
-                    .childOption(ChannelOption.SO_RCVBUF, 32 * 1024)  // 接收缓冲区
-                    .childOption(ChannelOption.SO_SNDBUF, 32 * 1024)  // 发送缓冲区
+                    .childOption(ChannelOption.SO_RCVBUF, 256 * 1024)  // 大幅增加接收缓冲区
+                    .childOption(ChannelOption.SO_SNDBUF, 256 * 1024)  // 大幅增加发送缓冲区
+                    // 新增性能优化配置
+                    .childOption(ChannelOption.WRITE_BUFFER_WATER_MARK, 
+                        new io.netty.channel.WriteBufferWaterMark(64 * 1024, 128 * 1024))
+                    .childOption(ChannelOption.ALLOCATOR, io.netty.buffer.PooledByteBufAllocator.DEFAULT)
+                    .childOption(ChannelOption.SO_LINGER, 0)  // 快速关闭连接
                     .childHandler(channelInitializer);
             
             // 绑定端口并启动服务器
             channelFuture = bootstrap.bind(config.getPort()).sync();
             
-            logger.info("Netty HTTP网关启动成功，监听端口: {}", config.getPort());
-            logger.info("后端服务配置:");
+            logger.warn("Netty HTTP Gateway started successfully on port: {}", config.getPort());
+            logger.warn("Backend services configured:");
             config.getBackendServices().forEach(service -> {
-                logger.info("  - {} -> {} (路径: {})", service.getName(), service.getUrl(), service.getPath());
+                logger.warn("  - {} -> {} (path: {})", service.getName(), service.getUrl(), service.getPath());
             });
             
             // 等待服务器关闭
@@ -74,10 +81,10 @@ public class GatewayServer {
     }
     
     /**
-     * Shuts down the gateway server
+     * 关闭网关服务器
      */
     public void shutdown() {
-        logger.info("Shutting down gateway server...");
+        logger.warn("Shutting down gateway server...");
         
         if (channelFuture != null) {
             channelFuture.channel().close();
@@ -102,6 +109,6 @@ public class GatewayServer {
             bossGroup.shutdownGracefully();
         }
         
-        logger.info("Gateway server has been shut down.");
+        logger.warn("Gateway server has been shut down.");
     }
 } 
