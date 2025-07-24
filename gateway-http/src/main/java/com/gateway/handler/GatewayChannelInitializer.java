@@ -37,9 +37,6 @@ public class GatewayChannelInitializer extends ChannelInitializer<SocketChannel>
     protected void initChannel(SocketChannel ch) throws Exception {
         ChannelPipeline pipeline = ch.pipeline();
         
-        // 只保留写超时，读超时由后端连接处理
-        pipeline.addLast("writeTimeoutHandler", new WriteTimeoutHandler(30, TimeUnit.SECONDS));
-        
         // HTTP编解码器
         pipeline.addLast("httpRequestDecoder", new HttpRequestDecoder());
         pipeline.addLast("httpResponseEncoder", new HttpResponseEncoder());

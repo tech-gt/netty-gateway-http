@@ -32,9 +32,10 @@ public class GatewayServer {
      * 启动网关服务器
      */
     public void start() throws InterruptedException {
-        // 创建线程组 - 根据CPU核心数优化线程数
+        // 优化线程组配置 - 避免过多线程导致上下文切换
         int bossThreads = 1;
-        int workerThreads = Runtime.getRuntime().availableProcessors() * 2;
+        // 优化：IO密集型应用，worker线程数 = CPU核心数，避免过度竞争
+        int workerThreads = Runtime.getRuntime().availableProcessors();
         
         bossGroup = new NioEventLoopGroup(bossThreads); // 处理连接请求
         workerGroup = new NioEventLoopGroup(workerThreads); // 处理业务逻辑
