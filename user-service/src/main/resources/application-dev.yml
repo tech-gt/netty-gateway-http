@@ -1,0 +1,71 @@
+# 开发环境配置 - 支持MySQL和H2数据库切换
+spring:
+  profiles:
+    active: mysql  # 默认使用MySQL，可切换为h2
+  
+  # MySQL配置（主要）
+  datasource:
+    url: jdbc:mysql://172.29.179.55:3306/employees?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC&connectTimeout=5000&socketTimeout=10000
+    driverClassName: com.mysql.cj.jdbc.Driver
+    username: root
+    password: x1zhimen
+    hikari:
+      minimum-idle: 1
+      maximum-pool-size: 5
+      connection-timeout: 10000
+      validation-timeout: 5000
+      auto-commit: false                 # 禁用自动提交
+      
+  # JPA开发配置
+  jpa:
+    show-sql: true                       # 开发环境显示SQL
+    hibernate:
+      ddl-auto: none
+    properties:
+      hibernate:
+        format_sql: true                 # 格式化SQL便于调试
+        connection:
+          provider_disables_autocommit: true
+          autocommit: false              # 明确禁用自动提交
+        
+  # DevTools配置
+  devtools:
+    restart:
+      enabled: true
+      additional-paths: src/main/java
+    livereload:
+      enabled: true
+
+---
+# H2内存数据库配置（备用）
+spring:
+  profiles: h2
+  
+  datasource:
+    url: jdbc:h2:mem:employeedb;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE
+    driverClassName: org.h2.Driver
+    username: sa
+    password: 
+    
+  h2:
+    console:
+      enabled: true
+      path: /h2-console
+      
+  jpa:
+    database-platform: org.hibernate.dialect.H2Dialect
+    hibernate:
+      ddl-auto: create-drop
+    show-sql: true
+    properties:
+      hibernate:
+        format_sql: true
+
+# 开发环境日志
+logging:
+  level:
+    com.userservice: DEBUG
+    org.springframework.web: INFO
+    org.hibernate.SQL: DEBUG
+    org.hibernate.type.descriptor.sql.BasicBinder: TRACE
+    com.zaxxer.hikari: DEBUG 

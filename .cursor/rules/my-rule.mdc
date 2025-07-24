@@ -1,0 +1,8 @@
+---
+description:
+globs:
+alwaysApply: true
+---
+
+1. 你别写什么脚本了，你写的脚本在Windows上都没法运行。
+2. 请用英文输出日志信息，不要包含中文

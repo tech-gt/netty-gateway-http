@@ -1,0 +1,44 @@
+# Netty HTTP Gateway 配置文件 - 性能优化版
+port: 8080
+
+# 连接超时配置 - 优化为更快的超时时间
+connectionTimeout: 3000
+socketTimeout: 8000
+maxConnections: 200
+
+# 负载均衡配置
+loadBalancer:
+  type: "round_robin"  # 可选: round_robin, weighted_round_robin
+  enableHealthCheck: true
+
+# 后端服务配置
+backendServices:
+  - name: "backend-api-v1"
+    url: "http://localhost:8081"
+    path: "/api/v1/*"
+    weight: 1
+    enabled: true
+    
+  - name: "backend-api-v2"
+    url: "http://localhost:8082"
+    path: "/api/v2/*"
+    weight: 1
+    enabled: true
+    
+  - name: "employee-service-instance1"
+    url: "http://localhost:8083"
+    path: "/employees/*"
+    weight: 1
+    enabled: true
+    
+  - name: "employee-service-instance2"
+    url: "http://localhost:8084"
+    path: "/employees/*"
+    weight: 1
+    enabled: true
+    
+  - name: "employee-service-instance3"
+    url: "http://localhost:8085"
+    path: "/employees/*"
+    weight: 1
+    enabled: true 
