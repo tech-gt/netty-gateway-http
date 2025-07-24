@@ -1,0 +1,64 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: spring-cloud-gateway
+  
+  cloud:
+    gateway:
+      routes:
+        # Employee Service Routes
+        - id: employee-health-route
+          uri: http://localhost:8083
+          predicates:
+            - Path=/employees/health
+          filters:
+            - StripPrefix=0
+        
+        # 可以添加更多路由规则
+        - id: employee-service-route
+          uri: http://localhost:8083
+          predicates:
+            - Path=/employees/**
+          filters:
+            - StripPrefix=0
+      
+      # 全局过滤器配置
+      default-filters:
+        - AddRequestHeader=X-Gateway-Source, spring-cloud-gateway
+        - AddResponseHeader=X-Gateway-Response, spring-cloud-gateway
+      
+      # 全局CORS配置
+      globalcors:
+        cors-configurations:
+          '[/**]':
+            allowedOrigins: "*"
+            allowedMethods:
+              - GET
+              - POST
+              - PUT
+              - DELETE
+              - OPTIONS
+            allowedHeaders: "*"
+            allowCredentials: false
+
+# 管理端点配置
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,gateway
+  endpoint:
+    health:
+      show-details: always
+    gateway:
+      enabled: true
+
+# 日志配置
+logging:
+  level:
+    org.springframework.cloud.gateway: INFO
+    com.gateway: INFO
+  pattern:
+    console: "%d{HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n" 
