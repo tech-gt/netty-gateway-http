@@ -88,6 +88,21 @@ public class AsyncHttpForwardService {
      * 非阻塞转发请求到后端服务
      */
     public void forwardRequest(ChannelHandlerContext gatewayCtx, FullHttpRequest request, BackendService service) {
+        // 关键优化：为异步操作和重试机制增加引用计数
+        request.retain();
+        forwardRequestWithRetry(gatewayCtx, request, service, 1); // 允许1次重试
+    }
+
+    /**
+     * 支持重试的非阻塞转发请求
+     * @param gatewayCtx 网关上下文
+     * @param request 原始请求
+     * @param service 目标服务
+     * @param retriesLeft 剩余重试次数
+     */
+    private void forwardRequestWithRetry(
+            ChannelHandlerContext gatewayCtx, FullHttpRequest request, BackendService service, int retriesLeft) {
+        
         try {
             URI uri = new URI(request.uri());
             String path = uri.getPath();
@@ -108,9 +123,6 @@ public class AsyncHttpForwardService {
             
             logger.debug("转发请求: {} -> {}", request.uri(), backendUrl);
             
-            // 创建后端请求
-            FullHttpRequest backendRequest = createBackendRequest(request, backendUri);
-            
             // 从连接池获取连接
             ChannelPool channelPool = getOrCreateChannelPool(host, port);
             Future<Channel> channelFuture = channelPool.acquire();
@@ -121,24 +133,38 @@ public class AsyncHttpForwardService {
                     if (future.isSuccess()) {
                         Channel backendChannel = future.getNow();
                         
+                        // 为重试创建可复制的请求
+                        FullHttpRequest backendRequest = createBackendRequest(request, backendUri);
+                        
                         // 设置响应处理器
                         backendChannel.pipeline().addLast("responseHandler", 
-                            new BackendResponseHandler(gatewayCtx, channelPool, backendChannel));
+                            new BackendResponseHandler(gatewayCtx, channelPool, backendChannel, request));
                         
                         // 发送请求到后端
                         backendChannel.writeAndFlush(backendRequest).addListener(writeFuture -> {
                             if (!writeFuture.isSuccess()) {
-                                logger.error("发送请求到后端失败: ", writeFuture.cause());
-                                sendErrorResponse(gatewayCtx, HttpResponseStatus.BAD_GATEWAY, 
-                                    "Failed to send request to backend");
-                                // 释放连接回池
-                                channelPool.release(backendChannel);
+                                logger.warn("发送请求到后端失败, cause: {}, retriesLeft: {}", 
+                                    writeFuture.cause().getMessage(), retriesLeft);
+
+                                // 销毁失效连接
+                                backendChannel.close();
+
+                                if (retriesLeft > 0) {
+                                    // 重试请求
+                                    forwardRequestWithRetry(gatewayCtx, request, service, retriesLeft - 1);
+                                } else {
+                                    logger.error("发送请求到后端失败，已重试但仍然失败。", writeFuture.cause());
+                                    sendErrorResponse(gatewayCtx, HttpResponseStatus.BAD_GATEWAY, 
+                                        "Failed to send request to backend");
+                                    request.release(); // 释放引用
+                                }
                             }
                         });
                     } else {
                         logger.error("从连接池获取连接失败: ", future.cause());
                         sendErrorResponse(gatewayCtx, HttpResponseStatus.BAD_GATEWAY, 
                             "Failed to acquire connection from pool");
+                        request.release(); // 释放引用
                     }
                 }
             });
@@ -147,6 +173,7 @@ public class AsyncHttpForwardService {
             logger.error("转发请求时发生错误: ", e);
             sendErrorResponse(gatewayCtx, HttpResponseStatus.INTERNAL_SERVER_ERROR, 
                 "Internal server error: " + e.getMessage());
+            request.release(); // 释放引用
         }
     }
     
@@ -193,12 +220,16 @@ public class AsyncHttpForwardService {
         private final ChannelHandlerContext gatewayCtx;
         private final ChannelPool channelPool;
         private final Channel backendChannel;
+        private final FullHttpRequest originalRequest; // 用于释放
         private volatile boolean processed = false; // 防止重复处理
         
-        public BackendResponseHandler(ChannelHandlerContext gatewayCtx, ChannelPool channelPool, Channel backendChannel) {
+        public BackendResponseHandler(
+                ChannelHandlerContext gatewayCtx, ChannelPool channelPool, 
+                Channel backendChannel, FullHttpRequest originalRequest) {
             this.gatewayCtx = gatewayCtx;
             this.channelPool = channelPool;
             this.backendChannel = backendChannel;
+            this.originalRequest = originalRequest;
         }
         
         @Override
@@ -233,6 +264,7 @@ public class AsyncHttpForwardService {
             } finally {
                 // 确保资源清理：移除处理器并释放连接回池
                 cleanupAndRelease(ctx);
+                originalRequest.release(); // 成功处理后释放原始请求
             }
         }
         
@@ -249,6 +281,7 @@ public class AsyncHttpForwardService {
             
             // 异常时也要清理资源
             cleanupAndRelease(ctx);
+            originalRequest.release(); // 异常时也要释放
         }
         
         @Override
@@ -258,6 +291,7 @@ public class AsyncHttpForwardService {
                 sendErrorResponse(gatewayCtx, HttpResponseStatus.BAD_GATEWAY, 
                     "Backend connection closed unexpectedly");
                 processed = true;
+                originalRequest.release(); // 意外关闭时也要释放
             }
             // 连接已关闭，不需要释放回池
         }
