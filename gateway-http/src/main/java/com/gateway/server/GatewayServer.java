@@ -54,10 +54,9 @@ public class GatewayServer {
                     // // 优化客户端连接配置
                     .childOption(ChannelOption.SO_KEEPALIVE, true)
                     // // .childOption(ChannelOption.TCP_NODELAY, true) //不重要
-                    //缓冲区不是越大越好
-                    // .childOption(ChannelOption.SO_RCVBUF, 8 * 1024)  // 大幅增加接收缓冲区
-                    // .childOption(ChannelOption.SO_SNDBUF, 8 * 1024)  // 大幅增加发送缓冲区
-                    // // 新增性能优化配置
+                    //缓冲区不是越大越好. 可以设置为默认，由系统自动调整
+                    // .childOption(ChannelOption.SO_RCVBUF, 256 * 1024)  // 大幅增加接收缓冲区
+                    // .childOption(ChannelOption.SO_SNDBUF, 256 * 1024)  // 大幅增加发送缓冲区
                     .childOption(ChannelOption.WRITE_BUFFER_WATER_MARK, 
                         new io.netty.channel.WriteBufferWaterMark(64 * 1024, 128 * 1024))
                     .childOption(ChannelOption.ALLOCATOR, io.netty.buffer.PooledByteBufAllocator.DEFAULT)

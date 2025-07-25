@@ -20,12 +20,12 @@ public class GatewayConfig {
                 // Employee Health Check Route
                 .route("employee-health", r -> r
                         .path("/employees/health")
-                        .uri("http://localhost:8083"))
+                        .uri("lb://employee-service"))
                 
                 // Employee Service Routes  
                 .route("employee-service", r -> r
                         .path("/employees/**")
-                        .uri("http://localhost:8083"))
+                        .uri("lb://employee-service"))
                 
                 .build();
     }

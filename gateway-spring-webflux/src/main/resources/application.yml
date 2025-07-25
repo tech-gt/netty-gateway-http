@@ -1,0 +1,45 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: gateway-spring-webflux
+  cloud:
+    gateway:
+      # 启用 Netty 访问日志，方便调试
+      httpclient:
+        wiretap: true
+      # 定义路由规则
+      routes:
+        # 规则 1: 转发到实例 8083
+        - id: employee-service-instance1
+          uri: http://localhost:8083
+          predicates:
+            # 匹配 /employees/ 开头的路径
+            - Path=/employees/**
+            # 权重谓词，属于 "employee-group" 组，权重为 1
+            - Weight=employee-group, 1
+
+        # 规则 2: 转发到实例 8084
+        - id: employee-service-instance2
+          uri: http://localhost:8084
+          predicates:
+            - Path=/employees/**
+            # 权重谓词，属于 "employee-group" 组，权重为 1
+            - Weight=employee-group, 1
+
+        # 规则 3: 转发到实例 8085
+        - id: employee-service-instance3
+          uri: http://localhost:8085
+          predicates:
+            - Path=/employees/**
+            # 权重谓词，属于 "employee-group" 组，权重为 1
+            - Weight=employee-group, 1
+
+# 配置日志级别
+logging:
+  level:
+    # 将 gateway 的日志级别设为 TRACE，可以看到更详细的路由决策过程
+    org.springframework.cloud.gateway: TRACE
+    # 将 Reactor Netty 的日志级别设为 INFO，可根据需要开启 DEBUG
+    reactor.netty.http.client: INFO 
