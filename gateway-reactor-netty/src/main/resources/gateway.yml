@@ -1,0 +1,41 @@
+# Reactor Netty HTTP Gateway 配置文件
+port: 8080
+
+# 连接超时配置 - 优化为高性能配置
+connectionTimeout: 1000  # 连接超时1秒
+socketTimeout: 5000      # 读超时5秒
+maxConnections: 10000    # 最大连接数
+
+# 负载均衡配置
+loadBalancer:
+  type: "round_robin"  # 可选: round_robin, weighted_round_robin
+  enableHealthCheck: true
+
+# 后端服务配置
+backendServices:
+  # Employee Service 集群
+  - name: "employee-service-instance1"
+    url: "http://localhost:8083"
+    path: "/employees/*"
+    weight: 1
+    enabled: true
+    
+  - name: "employee-service-instance2"
+    url: "http://localhost:8084"
+    path: "/employees/*"
+    weight: 1
+    enabled: true
+    
+  - name: "employee-service-instance3"
+    url: "http://localhost:8085"
+    path: "/employees/*"
+    weight: 1
+    enabled: true
+
+
+  # Health Check endpoint
+  - name: "health-check"
+    url: "http://localhost:8080"
+    path: "/health"
+    weight: 1
+    enabled: true 

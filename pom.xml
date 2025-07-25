@@ -19,6 +19,7 @@
         <module>gateway-spring</module>
         <module>gateway-spring-webflux</module>
         <module>user-service</module>
+        <module>gateway-reactor-netty</module>
     </modules>
 
     <properties>

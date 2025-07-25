@@ -47,7 +47,7 @@ public class AsyncHttpForwardService {
         this.config = config;
         // 计算每个连接池的最大连接数：总连接数 / 后端服务数，最少20个
         int backendCount = Math.max(1, config.getBackendServices().size());
-        this.connectionsPerPool = Math.max(20, config.getMaxConnections() / backendCount);
+        this.connectionsPerPool = Math.max(20, config.getMaxConnections());
         
         logger.warn("AsyncHttpForwardService initialized: totalConnections={}, backendCount={}, connectionsPerPool={}", 
                    config.getMaxConnections(), backendCount, connectionsPerPool);

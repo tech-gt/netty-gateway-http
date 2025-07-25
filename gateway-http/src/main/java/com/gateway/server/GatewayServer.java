@@ -9,6 +9,7 @@ import io.netty.channel.ChannelOption;
 import io.netty.channel.EventLoopGroup;
 import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.nio.NioServerSocketChannel;
+import io.netty.util.concurrent.DefaultThreadFactory;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -32,24 +33,22 @@ public class GatewayServer {
      * 启动网关服务器
      */
     public void start() throws InterruptedException {
-        // 优化线程组配置
-        int bossThreads = 2; // Boss线程只需要1个
+        int bossThreads = 1; // Boss线程通常只需要1个就足够了
         // Worker线程数 = CPU核心数，处理I/O事件
         int workerThreads = Runtime.getRuntime().availableProcessors();
         
-        bossGroup = new NioEventLoopGroup(bossThreads);
-        workerGroup = new NioEventLoopGroup(workerThreads);
+        bossGroup = new NioEventLoopGroup(bossThreads, new DefaultThreadFactory("GatewayBoss"));
+        workerGroup = new NioEventLoopGroup(workerThreads, new DefaultThreadFactory("GatewayWorker"));
         
         logger.warn("Starting gateway server with Boss threads: {}, Worker threads: {}", bossThreads, workerThreads);
         
         try {
             channelInitializer = new GatewayChannelInitializer(config);
-            
             ServerBootstrap bootstrap = new ServerBootstrap();
             bootstrap.group(bossGroup, workerGroup)
                     .channel(NioServerSocketChannel.class)
                     // 关键优化：大幅提升网络配置参数
-                    .option(ChannelOption.SO_BACKLOG, 1024*4)  // 大幅增加backlog
+                    .option(ChannelOption.SO_BACKLOG, 1024*16)  // 大幅增加backlog
                     .option(ChannelOption.SO_REUSEADDR, true)
                     // // 优化客户端连接配置
                     .childOption(ChannelOption.SO_KEEPALIVE, true)
