@@ -13,18 +13,7 @@ loadBalancer:
 
 # 后端服务配置
 backendServices:
-  - name: "backend-api-v1"
-    url: "http://localhost:8081"
-    path: "/api/v1/*"
-    weight: 1
-    enabled: true
-    
-  - name: "backend-api-v2"
-    url: "http://localhost:8082"
-    path: "/api/v2/*"
-    weight: 1
-    enabled: true
-    
+
   - name: "employee-service-instance1"
     url: "http://localhost:8083"
     path: "/employees/*"

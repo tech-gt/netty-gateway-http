@@ -1,6 +1,6 @@
 package com.userservice.entity;
 
-import javax.persistence.*;
+import com.baomidou.mybatisplus.annotation.*;
 import javax.validation.constraints.NotBlank;
 import javax.validation.constraints.NotNull;
 import javax.validation.constraints.Past;
@@ -10,35 +10,31 @@ import java.time.LocalDate;
 /**
  * 员工实体类 - 对应employees表
  */
-@Entity
-@Table(name = "employees")
+@TableName("employees")
 public class Employee {
     
-    @Id
-    @Column(name = "emp_no")
+    @TableId(value = "emp_no", type = IdType.INPUT)
     private Integer empNo;
     
-    @Column(name = "birth_date", nullable = false)
+    @TableField("birth_date")
     @NotNull(message = "出生日期不能为空")
     @Past(message = "出生日期必须是过去的日期")
     private LocalDate birthDate;
     
-    @Column(name = "first_name", nullable = false, length = 14)
+    @TableField("first_name")
     @NotBlank(message = "名字不能为空")
     @Size(max = 14, message = "名字长度不能超过14个字符")
     private String firstName;
     
-    @Column(name = "last_name", nullable = false, length = 16)
+    @TableField("last_name")
     @NotBlank(message = "姓氏不能为空")
     @Size(max = 16, message = "姓氏长度不能超过16个字符")
     private String lastName;
     
-    @Enumerated(EnumType.STRING)
-    @Column(name = "gender", nullable = false)
     @NotNull(message = "性别不能为空")
     private Gender gender;
     
-    @Column(name = "hire_date", nullable = false)
+    @TableField("hire_date")
     @NotNull(message = "入职日期不能为空")
     private LocalDate hireDate;
     

@@ -11,10 +11,7 @@ import javax.validation.constraints.Min;
 
 import org.slf4j.LoggerFactory; 
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.PageRequest;
-import org.springframework.data.domain.Pageable;
-import org.springframework.data.domain.Sort;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -45,25 +42,19 @@ public class EmployeeController {
      */
     @GetMapping
     public ResponseEntity<Map<String, Object>> getAllEmployees(
-            @RequestParam(defaultValue = "0") @Min(0) int page,
-            @RequestParam(defaultValue = "10") @Min(1) int size,
-            @RequestParam(defaultValue = "empNo") String sortBy,
-            @RequestParam(defaultValue = "asc") String sortDir) {
+            @RequestParam(defaultValue = "1") @Min(1) int page,
+            @RequestParam(defaultValue = "10") @Min(1) int size) {
         
-        logger.info("Request to get all employees with pagination: page={}, size={}, sortBy={}, sortDir={}", page, size, sortBy, sortDir);
+        logger.info("Request to get all employees with pagination: page={}, size={}", page, size);
         
         try {
-            Sort sort = sortDir.equalsIgnoreCase("desc") ? 
-                Sort.by(sortBy).descending() : Sort.by(sortBy).ascending();
-            
-            Pageable pageable = PageRequest.of(page, size, sort);
-            Page<Employee> employeePage = employeeService.getAllEmployees(pageable);
+            Page<Employee> employeePage = employeeService.getAllEmployees(page, size);
             
             Map<String, Object> response = new HashMap<>();
-            response.put("employees", employeePage.getContent());
-            response.put("currentPage", employeePage.getNumber());
-            response.put("totalItems", employeePage.getTotalElements());
-            response.put("totalPages", employeePage.getTotalPages());
+            response.put("employees", employeePage.getRecords());
+            response.put("currentPage", employeePage.getCurrent());
+            response.put("totalItems", employeePage.getTotal());
+            response.put("totalPages", employeePage.getPages());
             response.put("hasNext", employeePage.hasNext());
             response.put("hasPrevious", employeePage.hasPrevious());
             

@@ -7,8 +7,7 @@ import com.userservice.repository.EmployeeRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.Pageable;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -33,16 +32,17 @@ public class EmployeeService {
     @Transactional(readOnly = true)
     public List<Employee> getAllEmployees() {
         logger.info("Fetching all employees.");
-        return employeeRepository.findAll();
+        return employeeRepository.selectList(null);
     }
     
     /**
      * Get employees with pagination
      */
     @Transactional(readOnly = true)
-    public Page<Employee> getAllEmployees(Pageable pageable) {
-        logger.info("Fetching employees with pagination: page={}, size={}", pageable.getPageNumber(), pageable.getPageSize());
-        return employeeRepository.findAll(pageable);
+    public Page<Employee> getAllEmployees(long current, long size) {
+        logger.info("Fetching employees with pagination: page={}, size={}", current, size);
+        Page<Employee> page = new Page<>(current, size);
+        return employeeRepository.selectPage(page, null);
     }
     
     /**
@@ -51,8 +51,11 @@ public class EmployeeService {
     @Transactional(readOnly = true)
     public Employee getEmployeeByEmpNo(Integer empNo) {
         logger.info("Fetching employee by empNo: {}", empNo);
-        return employeeRepository.findById(empNo)
-                .orElseThrow(() -> new EmployeeNotFoundException("Employee not found with empNo: " + empNo));
+        Employee employee = employeeRepository.selectById(empNo);
+        if (employee == null) {
+            throw new EmployeeNotFoundException("Employee not found with empNo: " + empNo);
+        }
+        return employee;
     }
     
     /**
@@ -79,7 +82,7 @@ public class EmployeeService {
     @Transactional(readOnly = true)
     public List<Employee> getEmployeesByGender(Employee.Gender gender) {
         logger.info("Fetching employees by gender: {}", gender);
-        return employeeRepository.findByGender(gender);
+        return employeeRepository.findByGender(gender.name());
     }
     
     /**
@@ -188,13 +191,13 @@ public class EmployeeService {
         logger.info("Creating a new employee with empNo: {}", employee.getEmpNo());
         
         // Validate if employee number already exists
-        if (employeeRepository.existsById(employee.getEmpNo())) {
+        if (employeeRepository.selectById(employee.getEmpNo()) != null) {
             throw new EmployeeValidationException("Employee with empNo already exists: " + employee.getEmpNo());
         }
         
-        Employee savedEmployee = employeeRepository.save(employee);
-        logger.info("Employee created successfully with empNo: {}", savedEmployee.getEmpNo());
-        return savedEmployee;
+        employeeRepository.insert(employee);
+        logger.info("Employee created successfully with empNo: {}", employee.getEmpNo());
+        return employee;
     }
     
     /**
@@ -208,9 +211,9 @@ public class EmployeeService {
         // Update employee fields
         updateEmployeeFields(existingEmployee, employeeDetails);
         
-        Employee updatedEmployee = employeeRepository.save(existingEmployee);
-        logger.info("Employee updated successfully with empNo: {}", updatedEmployee.getEmpNo());
-        return updatedEmployee;
+        employeeRepository.updateById(existingEmployee);
+        logger.info("Employee updated successfully with empNo: {}", existingEmployee.getEmpNo());
+        return existingEmployee;
     }
     
     /**
@@ -219,8 +222,9 @@ public class EmployeeService {
     public void deleteEmployee(Integer empNo) {
         logger.info("Deleting employee with empNo: {}", empNo);
         
-        Employee employee = getEmployeeByEmpNo(empNo);
-        employeeRepository.delete(employee);
+        // Check if employee exists first
+        getEmployeeByEmpNo(empNo);
+        employeeRepository.deleteById(empNo);
         
         logger.info("Employee deleted successfully with empNo: {}", empNo);
     }
@@ -230,7 +234,7 @@ public class EmployeeService {
      */
     @Transactional(readOnly = true)
     public boolean existsByEmpNo(Integer empNo) {
-        return employeeRepository.existsById(empNo);
+        return employeeRepository.selectById(empNo) != null;
     }
     
     /**

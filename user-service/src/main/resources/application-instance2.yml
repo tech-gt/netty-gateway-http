@@ -1,88 +1,147 @@
-# 员工服务配置文件 - 实例2
 server:
   port: 8084
   servlet:
     context-path: /
+  tomcat:
+    threads:
+      max: 200
+      min-spare: 10
+    max-connections: 10000
+    accept-count: 100
 
 spring:
   application:
-    name: employee-service-instance2
+    name: user-service
   
-  # MySQL数据库配置 - 稳定连接配置
+  # 数据库配置
   datasource:
-    url: jdbc:mysql://172.29.179.55:3306/employees?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC&useUnicode=true&characterEncoding=utf8&autoReconnect=true&failOverReadOnly=false&maxReconnects=10
-    driverClassName: com.mysql.cj.jdbc.Driver
+    type: com.alibaba.druid.pool.DruidDataSource
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: jdbc:mysql://172.29.179.55:3306/employees?useUnicode=true&characterEncoding=utf8&zeroDateTimeBehavior=convertToNull&useSSL=false&serverTimezone=GMT%2B8&allowPublicKeyRetrieval=true
     username: root
     password: x1zhimen
     
-    # HikariCP连接池配置 - 实例2优化
-    hikari:
-      minimum-idle: 3                    # 最小空闲连接数
-      maximum-pool-size: 10              # 最大连接池大小
-      idle-timeout: 600000               # 空闲连接超时时间(10分钟)
-      pool-name: EmployeeHikariPool-2
-      max-lifetime: 1800000              # 连接最大生命周期(30分钟)
-      connection-timeout: 10000          # 连接超时时间(10秒)
-      validation-timeout: 5000           # 验证超时时间(5秒)
-      leak-detection-threshold: 60000    # 连接泄露检测阈值(60秒)
-      connection-test-query: SELECT 1    # 连接测试查询
-      connection-init-sql: SELECT 1      # 连接初始化SQL
-      keepalive-time: 30000              # 保活时间(30秒)
-      register-mbeans: true              # 注册MBean用于监控
-      auto-commit: false                 # 关键设置：禁用自动提交
-    
-  # JPA配置
-  jpa:
-    database-platform: org.hibernate.dialect.MySQL8Dialect
-    hibernate:
-      ddl-auto: none  # 不自动创建表，使用现有的employees数据库
-      naming:
-        physical-strategy: org.hibernate.boot.model.naming.PhysicalNamingStrategyStandardImpl
-    show-sql: false  # 关闭SQL日志以提高性能
-    properties:
-      hibernate:
-        format_sql: false
-        jdbc:
-          batch_size: 20                 # 批处理大小
-          fetch_size: 50                 # 获取大小
-        connection:
-          provider_disables_autocommit: true  # 禁用自动提交优化
-          autocommit: false              # 明确禁用自动提交
-        order_inserts: true              # 优化插入顺序
-        order_updates: true              # 优化更新顺序
-        batch_versioned_data: true       # 批处理版本化数据
-        current_session_context_class: org.springframework.orm.hibernate5.SpringSessionContext
-        
-  # Jackson配置
-  jackson:
-    time-zone: GMT+8
-    date-format: yyyy-MM-dd
-    serialization:
-      write-dates-as-timestamps: false
+    # Druid连接池配置
+    druid:
+      initial-size: 5
+      min-idle: 5
+      max-active: 20
+      max-wait: 60000
+      time-between-eviction-runs-millis: 60000
+      min-evictable-idle-time-millis: 300000
+      validation-query: SELECT 1
+      test-while-idle: true
+      test-on-borrow: false
+      test-on-return: false
+      pool-prepared-statements: true
+      max-pool-prepared-statement-per-connection-size: 20
+      
+      # 监控配置
+      stat-view-servlet:
+        enabled: true
+        url-pattern: /druid/*
+        login-username: admin
+        login-password: admin123
+        reset-enable: false
+      
+      web-stat-filter:
+        enabled: true
+        url-pattern: /*
+        exclusions: "*.js,*.gif,*.jpg,*.png,*.css,*.ico,/druid/*"
 
-# 日志配置 - 实例2
-logging:
-  level:
-    com.userservice: INFO              # 业务日志级别
-    org.springframework.web: WARN      # 减少Spring Web日志
-    org.hibernate.SQL: WARN            # 减少SQL日志
-    org.hibernate.type: WARN           # 减少类型日志
-    com.zaxxer.hikari: INFO            # HikariCP日志
-    org.springframework.boot: INFO     # Spring Boot日志
-  pattern:
-    console: "%d{HH:mm:ss.SSS} [%thread] %-5level %logger{36} - [实例2] %msg%n"
-    file: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - [实例2] %msg%n"
-  file:
-    name: logs/employee-service-instance2.log
+# MyBatis Plus配置
+mybatis-plus:
+  configuration:
+    map-underscore-to-camel-case: true
+    cache-enabled: false
+    call-setters-on-nulls: true
+    jdbc-type-for-null: 'null'
+    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
+  
+  global-config:
+    db-config:
+      id-type: AUTO
+      logic-delete-field: deleted
+      logic-delete-value: 1
+      logic-not-delete-value: 0
+      update-strategy: NOT_NULL
+      insert-strategy: NOT_NULL
+      select-strategy: NOT_EMPTY
+  
+  mapper-locations: classpath*:mapper/**/*Mapper.xml
+  type-aliases-package: com.userservice.entity
 
 # 管理端点配置
 management:
   endpoints:
     web:
       exposure:
-        include: health,info,metrics,beans,env
+        include: health,info,metrics,prometheus
+      base-path: /actuator
   endpoint:
     health:
-      show-details: when-authorized
-    env:
-      show-values: when-authorized 
+      show-details: always
+  health:
+    db:
+      enabled: true
+  metrics:
+    export:
+      prometheus:
+        enabled: true
+
+# 日志配置
+logging:
+  level:
+    com.userservice: INFO
+    com.baomidou.mybatisplus: INFO
+    org.springframework.web: INFO
+    org.springframework.jdbc: DEBUG
+    com.alibaba.druid: INFO
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{50} - %msg%n"
+    file: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{50} - %msg%n"
+  file:
+    name: logs/user-service.log
+    max-size: 100MB
+    max-history: 30
+
+# 应用信息配置
+info:
+  app:
+    name: ${spring.application.name}
+    description: Employee Service - Provides employee information query and update functionality
+    version: 1.0.0
+    encoding: UTF-8
+    java:
+      version: ${java.version}
+
+# 环境配置
+---
+spring:
+  config:
+    activate:
+      on-profile: dev
+  datasource:
+    druid:
+      stat-view-servlet:
+        enabled: true
+logging:
+  level:
+    root: INFO
+    com.userservice: DEBUG
+
+---
+spring:
+  config:
+    activate:
+      on-profile: prod
+  datasource:
+    druid:
+      stat-view-servlet:
+        enabled: false
+logging:
+  level:
+    root: WARN
+    com.userservice: INFO
+  file:
+    name: /var/log/user-service/user-service.log 

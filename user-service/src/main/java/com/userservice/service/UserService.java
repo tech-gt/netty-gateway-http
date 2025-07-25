@@ -7,8 +7,8 @@ import com.userservice.repository.UserRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.Pageable;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -33,16 +33,17 @@ public class UserService {
     @Transactional(readOnly = true)
     public List<User> getAllUsers() {
         logger.info("查询所有用户");
-        return userRepository.findAll();
+        return userRepository.selectList(null);
     }
     
     /**
      * 分页获取用户
      */
     @Transactional(readOnly = true)
-    public Page<User> getAllUsers(Pageable pageable) {
-        logger.info("分页查询用户，页码：{}，大小：{}", pageable.getPageNumber(), pageable.getPageSize());
-        return userRepository.findAll(pageable);
+    public Page<User> getAllUsers(long current, long size) {
+        logger.info("分页查询用户，页码：{}，大小：{}", current, size);
+        Page<User> page = new Page<>(current, size);
+        return userRepository.selectPage(page, null);
     }
     
     /**
@@ -51,8 +52,11 @@ public class UserService {
     @Transactional(readOnly = true)
     public User getUserById(Long id) {
         logger.info("根据ID查询用户：{}", id);
-        return userRepository.findById(id)
-                .orElseThrow(() -> new UserNotFoundException("用户不存在，ID: " + id));
+        User user = userRepository.selectById(id);
+        if (user == null) {
+            throw new UserNotFoundException("用户不存在，ID: " + id);
+        }
+        return user;
     }
     
     /**
@@ -61,8 +65,11 @@ public class UserService {
     @Transactional(readOnly = true)
     public User getUserByUsername(String username) {
         logger.info("根据用户名查询用户：{}", username);
-        return userRepository.findByUsername(username)
-                .orElseThrow(() -> new UserNotFoundException("用户不存在，用户名: " + username));
+        User user = userRepository.findByUsername(username);
+        if (user == null) {
+            throw new UserNotFoundException("用户不存在，用户名: " + username);
+        }
+        return user;
     }
     
     /**
@@ -71,8 +78,11 @@ public class UserService {
     @Transactional(readOnly = true)
     public User getUserByEmail(String email) {
         logger.info("根据邮箱查询用户：{}", email);
-        return userRepository.findByEmail(email)
-                .orElseThrow(() -> new UserNotFoundException("用户不存在，邮箱: " + email));
+        User user = userRepository.findByEmail(email);
+        if (user == null) {
+            throw new UserNotFoundException("用户不存在，邮箱: " + email);
+        }
+        return user;
     }
     
     /**
@@ -81,7 +91,7 @@ public class UserService {
     @Transactional(readOnly = true)
     public List<User> getUsersByStatus(User.UserStatus status) {
         logger.info("根据状态查询用户：{}", status);
-        return userRepository.findByStatus(status);
+        return userRepository.findByStatus(status.name());
     }
     
     /**
@@ -111,9 +121,9 @@ public class UserService {
         // 验证用户名和邮箱是否已存在
         validateUserForCreate(user);
         
-        User savedUser = userRepository.save(user);
-        logger.info("用户创建成功，ID：{}", savedUser.getId());
-        return savedUser;
+        userRepository.insert(user);
+        logger.info("用户创建成功，ID：{}", user.getId());
+        return user;
     }
     
     /**
@@ -130,9 +140,9 @@ public class UserService {
         // 更新用户信息
         updateUserFields(existingUser, userDetails);
         
-        User updatedUser = userRepository.save(existingUser);
-        logger.info("用户更新成功，ID：{}", updatedUser.getId());
-        return updatedUser;
+        userRepository.updateById(existingUser);
+        logger.info("用户更新成功，ID：{}", existingUser.getId());
+        return existingUser;
     }
     
     /**
@@ -144,9 +154,9 @@ public class UserService {
         User user = getUserById(id);
         user.setStatus(status);
         
-        User updatedUser = userRepository.save(user);
-        logger.info("用户状态更新成功，ID：{}", updatedUser.getId());
-        return updatedUser;
+        userRepository.updateById(user);
+        logger.info("用户状态更新成功，ID：{}", user.getId());
+        return user;
     }
     
     /**
@@ -155,8 +165,9 @@ public class UserService {
     public void deleteUser(Long id) {
         logger.info("删除用户，ID：{}", id);
         
-        User user = getUserById(id);
-        userRepository.delete(user);
+        // 先检查用户是否存在
+        getUserById(id);
+        userRepository.deleteById(id);
         
         logger.info("用户删除成功，ID：{}", id);
     }
@@ -166,7 +177,7 @@ public class UserService {
      */
     @Transactional(readOnly = true)
     public boolean existsById(Long id) {
-        return userRepository.existsById(id);
+        return userRepository.selectById(id) != null;
     }
     
     /**
@@ -174,7 +185,7 @@ public class UserService {
      */
     @Transactional(readOnly = true)
     public boolean existsByUsername(String username) {
-        return userRepository.findByUsername(username).isPresent();
+        return userRepository.findByUsername(username) != null;
     }
     
     /**
@@ -182,7 +193,7 @@ public class UserService {
      */
     @Transactional(readOnly = true)
     public boolean existsByEmail(String email) {
-        return userRepository.findByEmail(email).isPresent();
+        return userRepository.findByEmail(email) != null;
     }
     
     /**

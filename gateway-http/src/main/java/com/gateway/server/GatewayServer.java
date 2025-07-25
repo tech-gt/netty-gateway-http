@@ -33,7 +33,7 @@ public class GatewayServer {
      */
     public void start() throws InterruptedException {
         // 优化线程组配置
-        int bossThreads = 1; // Boss线程只需要1个
+        int bossThreads = 2; // Boss线程只需要1个
         // Worker线程数 = CPU核心数，处理I/O事件
         int workerThreads = Runtime.getRuntime().availableProcessors();
         

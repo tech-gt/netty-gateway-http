@@ -1,6 +1,6 @@
 package com.userservice.entity;
 
-import javax.persistence.*;
+import com.baomidou.mybatisplus.annotation.*;
 import javax.validation.constraints.Email;
 import javax.validation.constraints.NotBlank;
 import javax.validation.constraints.Size;
@@ -9,45 +9,37 @@ import java.time.LocalDateTime;
 /**
  * 用户实体类
  */
-@Entity
-@Table(name = "users")
+@TableName("users")
 public class User {
     
-    @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    @TableId(type = IdType.AUTO)
     private Long id;
     
-    @Column(unique = true, nullable = false)
     @NotBlank(message = "用户名不能为空")
     @Size(min = 3, max = 50, message = "用户名长度必须在3-50个字符之间")
     private String username;
     
-    @Column(nullable = false)
     @NotBlank(message = "姓名不能为空")
     @Size(max = 100, message = "姓名长度不能超过100个字符")
+    @TableField("full_name")
     private String fullName;
     
-    @Column(unique = true, nullable = false)
     @Email(message = "邮箱格式不正确")
     @NotBlank(message = "邮箱不能为空")
     private String email;
     
-    @Column
     @Size(max = 20, message = "电话号码长度不能超过20个字符")
     private String phone;
     
-    @Column
     @Size(max = 200, message = "地址长度不能超过200个字符")
     private String address;
     
-    @Enumerated(EnumType.STRING)
-    @Column(nullable = false)
     private UserStatus status = UserStatus.ACTIVE;
     
-    @Column(name = "created_time", nullable = false)
+    @TableField(value = "created_time", fill = FieldFill.INSERT)
     private LocalDateTime createdTime;
     
-    @Column(name = "updated_time")
+    @TableField(value = "updated_time", fill = FieldFill.INSERT_UPDATE)
     private LocalDateTime updatedTime;
     
     // 用户状态枚举
@@ -69,11 +61,7 @@ public class User {
         this.email = email;
     }
     
-    // JPA回调方法
-    @PreUpdate
-    protected void onUpdate() {
-        this.updatedTime = LocalDateTime.now();
-    }
+    // MyBatis Plus自动填充会处理时间戳更新
     
     // Getters and Setters
     public Long getId() {

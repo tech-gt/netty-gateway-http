@@ -7,10 +7,7 @@ import com.userservice.service.UserService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.PageRequest;
-import org.springframework.data.domain.Pageable;
-import org.springframework.data.domain.Sort;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.validation.annotation.Validated;
@@ -41,25 +38,19 @@ public class UserController {
      */
     @GetMapping
     public ResponseEntity<Map<String, Object>> getAllUsers(
-            @RequestParam(defaultValue = "0") @Min(0) int page,
-            @RequestParam(defaultValue = "10") @Min(1) int size,
-            @RequestParam(defaultValue = "id") String sortBy,
-            @RequestParam(defaultValue = "asc") String sortDir) {
+            @RequestParam(defaultValue = "1") @Min(1) int page,
+            @RequestParam(defaultValue = "10") @Min(1) int size) {
         
-        logger.info("GET /users - page: {}, size: {}, sortBy: {}, sortDir: {}", page, size, sortBy, sortDir);
+        logger.info("GET /users - page: {}, size: {}", page, size);
         
         try {
-            Sort sort = sortDir.equalsIgnoreCase("desc") ? 
-                Sort.by(sortBy).descending() : Sort.by(sortBy).ascending();
-            
-            Pageable pageable = PageRequest.of(page, size, sort);
-            Page<User> userPage = userService.getAllUsers(pageable);
+            Page<User> userPage = userService.getAllUsers(page, size);
             
             Map<String, Object> response = new HashMap<>();
-            response.put("users", userPage.getContent());
-            response.put("currentPage", userPage.getNumber());
-            response.put("totalItems", userPage.getTotalElements());
-            response.put("totalPages", userPage.getTotalPages());
+            response.put("users", userPage.getRecords());
+            response.put("currentPage", userPage.getCurrent());
+            response.put("totalItems", userPage.getTotal());
+            response.put("totalPages", userPage.getPages());
             response.put("hasNext", userPage.hasNext());
             response.put("hasPrevious", userPage.hasPrevious());
             
