@@ -36,6 +36,7 @@ public class SimpleHttpRequestDecoder extends ByteToMessageDecoder {
     
     @Override
     protected void decode(ChannelHandlerContext ctx, ByteBuf in, List<Object> out) throws Exception {
+        // System.out.println("decode called in thread: " + Thread.currentThread().getName());
         try {
             switch (currentState) {
                 case READ_REQUEST_LINE:

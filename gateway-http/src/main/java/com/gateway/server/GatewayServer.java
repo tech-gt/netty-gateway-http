@@ -35,7 +35,7 @@ public class GatewayServer {
     public void start() throws InterruptedException {
         int bossThreads = 1; // Boss线程通常只需要1个就足够了
         // Worker线程数 = CPU核心数，处理I/O事件
-        int workerThreads = Runtime.getRuntime().availableProcessors();
+        int workerThreads = 4;
         
         bossGroup = new NioEventLoopGroup(bossThreads, new DefaultThreadFactory("GatewayBoss"));
         workerGroup = new NioEventLoopGroup(workerThreads, new DefaultThreadFactory("GatewayWorker"));

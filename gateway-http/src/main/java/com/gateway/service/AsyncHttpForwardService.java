@@ -35,7 +35,7 @@ public class AsyncHttpForwardService {
     
     // 优化：使用CPU核心数的线程，避免过度竞争
     private static final EventLoopGroup GLOBAL_WORKER_GROUP = 
-        new NioEventLoopGroup(Runtime.getRuntime().availableProcessors() + 6);
+        new NioEventLoopGroup(4);
     
     // 连接池缓存 - 基于host:port
     private static final ConcurrentHashMap<String, ChannelPool> CONNECTION_POOLS = new ConcurrentHashMap<>();

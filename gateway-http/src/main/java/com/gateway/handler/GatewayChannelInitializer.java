@@ -19,7 +19,8 @@ public class GatewayChannelInitializer extends ChannelInitializer<SocketChannel>
     private final GatewayConfig config;
     private final LoadBalancer loadBalancer;
     private final AsyncHttpForwardService forwardService;
-    
+    // private final AsyncGatewayRequestHandler handler;
+
     // 是否使用自定义编解码器 (可以通过配置控制)
     private final boolean useCustomCodec = true; // 临时改为true测试修复后的代码
     
@@ -30,12 +31,15 @@ public class GatewayChannelInitializer extends ChannelInitializer<SocketChannel>
             config.getLoadBalancer().getType()
         );
         this.forwardService = new AsyncHttpForwardService(config);
+        // handler = new AsyncGatewayRequestHandler(config, loadBalancer, forwardService);
     }
-    
+    // private SimpleHttpRequestDecoder simpleHttpRequestDecoder = new SimpleHttpRequestDecoder();
+    // private SimpleHttpResponseEncoder simpleHttpResponseEncoder = new SimpleHttpResponseEncoder();
     @Override
     protected void initChannel(SocketChannel ch) throws Exception {
         ChannelPipeline pipeline = ch.pipeline();
-        
+        // System.out.println("initChannel called in thread: " + Thread.currentThread().getName());
+
         // HTTP编解码器 - 可选择使用自定义实现
         if (useCustomCodec) {
             // 使用自定义的简单编解码器
